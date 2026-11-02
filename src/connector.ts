@@ -158,6 +158,12 @@ export class Connector implements IDisposable {
 		this._selectableCircle.mouseout(this.mouseOutObject.bind(this));
 		//this._selectableCircle.bringToFront();
 		this._selectableCircle.mousedown(this.mouseDown.bind(this));
+		this._selectableCircle.node.addEventListener('pointerdown', (ev: PointerEvent) => {
+			if (ev.pointerType === 'mouse' || !ev.isPrimary) return;
+			ev.preventDefault();
+			ev.stopPropagation();
+			this.mouseDown(ev as unknown as MouseEvent);
+		});
 
 		this._molecule = options.molecule;
 

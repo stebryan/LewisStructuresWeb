@@ -155,6 +155,12 @@ const template = html<LewisStructureCanvas>`
  
 <fluent-design-system-provider use-defaults>
 <style>
+#svgContainer, #svgContainer svg, #svgContainer svg * {
+	touch-action: none;
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+}
 .eventless{
 	pointer-events:none;
 }

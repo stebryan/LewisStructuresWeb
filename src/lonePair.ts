@@ -98,6 +98,12 @@ export class LonePair implements IDisposable {
 		this._group.mouseout(this.mouseOut.bind(this));
 
 		this._group.mousedown(this.mouseDown.bind(this));
+		this._group.node.addEventListener('pointerdown', (ev: PointerEvent) => {
+			if (ev.pointerType === 'mouse' || !ev.isPrimary) return;
+			ev.preventDefault();
+			ev.stopPropagation();
+			this.mouseDown(ev as unknown as MouseEvent);
+		});
 		//this._group.move(this.onObjectMoving.bind(this));
 
 

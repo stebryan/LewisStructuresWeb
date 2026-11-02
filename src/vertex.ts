@@ -29,6 +29,9 @@ export interface IVertexOptions {
 export class Vertex implements IDisposable {
 
 	static circleRadius: number = 15;
+	// Each drawing surface tracks its own atoms; touch does not generate mouse hover.
+	private static verticesByCanvas = new WeakMap<Svg, Set<Vertex>>();
+	private touchPointerId: number | null = null;
 
 	private attachments: Object[];
 	private attachmentSubs: Map<Object, Subscription[]>;
@@ -77,6 +80,8 @@ export class Vertex implements IDisposable {
 	constructor(options: IVertexOptions) {
 
 		this._svg = options.svg;
+		if (!Vertex.verticesByCanvas.has(this._svg)) Vertex.verticesByCanvas.set(this._svg, new Set());
+		Vertex.verticesByCanvas.get(this._svg)!.add(this);
 		this.settingsService = container.resolve<SettingsService>((this._svg as any).tag);
 
 		this._group = options.svg.group().attr("tabindex", "0").attr("aria-label", "Atom");
@@ -191,6 +196,9 @@ export class Vertex implements IDisposable {
 		});
 
 		this._group.mousedown(this.mouseDown.bind(this));
+		// A real pointer sequence is required for finger/stylus bond drawing on iOS.
+		// Keep the original mouse events completely unchanged for desktop users.
+		this._group.node.addEventListener('pointerdown', this.touchDown.bind(this));
 		//this._circle.mousedown(this.mouseDown);
 		this._group.mouseenter(this.mouseEnter.bind(this));
 		this._group.mouseleave(this.mouseLeave.bind(this));
@@ -268,7 +276,10 @@ export class Vertex implements IDisposable {
 	}
 
 	public dispose() {
-
+		Vertex.verticesByCanvas.get(this._svg)?.delete(this);
+		window.removeEventListener('pointermove', this.touchMove);
+		window.removeEventListener('pointerup', this.touchUp);
+		window.removeEventListener('pointercancel', this.touchUp);
 		this._group.mousedown(null);
 		this._circle.remove();
 		this._text.remove();
@@ -375,6 +386,55 @@ export class Vertex implements IDisposable {
 
 		this._tabDiv.innerText = this._ariaLabel;
 	}
+
+
+	private targetAt(clientX: number, clientY: number): Vertex | null {
+		const bounds = this._svg.node.getBoundingClientRect();
+		const x = clientX - bounds.left;
+		const y = clientY - bounds.top;
+		let closest: Vertex | null = null;
+		let distance = (Vertex.circleRadius + 9) ** 2;
+		for (const candidate of Vertex.verticesByCanvas.get(this._svg) ?? []) {
+			if (candidate === this || candidate === this._tempVertex || candidate.disableEvents || candidate._group.hasClass("eventless")) continue;
+			const dx = candidate.Position.x - x;
+			const dy = candidate.Position.y - y;
+			const d = dx * dx + dy * dy;
+			if (d <= distance) { closest = candidate; distance = d; }
+		}
+		return closest;
+	}
+
+	private touchDown(ev: PointerEvent) {
+		if (ev.pointerType === 'mouse' || !ev.isPrimary || ev.button !== 0) return;
+		if (!this.settingsService.isDrawMode) return;
+		ev.preventDefault(); // Suppress compatibility mousedown/click and iOS selection.
+		ev.stopPropagation();
+		this.touchPointerId = ev.pointerId;
+		this.mouseDown(ev as unknown as MouseEvent); // Existing creation logic (lone pairs included).
+		window.addEventListener('pointermove', this.touchMove, { passive: false });
+		window.addEventListener('pointerup', this.touchUp);
+		window.addEventListener('pointercancel', this.touchUp);
+	}
+
+	private touchMove = (ev: PointerEvent) => {
+		if (this.touchPointerId !== ev.pointerId) return;
+		ev.preventDefault();
+		this.settingsService.hoveredVertex = this.targetAt(ev.clientX, ev.clientY);
+		this.mouseMove(ev as unknown as MouseEvent);
+	};
+
+	private touchUp = (ev: PointerEvent) => {
+		if (this.touchPointerId !== ev.pointerId) return;
+		ev.preventDefault();
+		this.settingsService.hoveredVertex = this.targetAt(ev.clientX, ev.clientY);
+		// A mouse-up never fires on touch for this SVG; close the existing operation directly.
+		this.mouseUp(ev as unknown as MouseEvent);
+		this.touchPointerId = null;
+		window.removeEventListener('pointermove', this.touchMove);
+		window.removeEventListener('pointerup', this.touchUp);
+		window.removeEventListener('pointercancel', this.touchUp);
+		this.settingsService.hoveredVertex = null;
+	};
 
 	mouseDown(ev: MouseEvent) {
 		if (ev.button != 0){
